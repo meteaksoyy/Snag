@@ -4,7 +4,7 @@ import { AutosizeTextarea } from "@/components/ui/autosize-textarea";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { KeyboardEvent, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Paperclip } from "lucide-react";
 import React from "react";
 
 interface ResultCard {
@@ -22,6 +22,7 @@ interface Message {
   type: "bot" | "user";
   isThinking?: boolean;
   results?: ResultCard[];
+  images?: string[];
 }
 
 type FlowStep = "asking_item" | "asking_budget" | "asking_specs" | "searching" | "chat";
@@ -132,6 +133,7 @@ export default function BuyShitFast() {
   const [searchParams, setSearchParams] = useState<SearchParams>({ item: "", budget: "", specs: "" });
   const [searchResults, setSearchResults] = useState<ResultCard[]>([]);
   const [conversation, setConversation] = useState<Message[]>([INITIAL_MESSAGE]);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -201,12 +203,30 @@ export default function BuyShitFast() {
     setFlowStep("chat");
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new window.Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX = 512;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      setUploadedImage(canvas.toDataURL("image/jpeg", 0.8));
+    };
+    img.src = URL.createObjectURL(file);
+  };
+
   const handleSendMessage = async () => {
     const input = userInput.trim();
     if (!input || flowStep === "searching") return;
 
+    const currentImage = uploadedImage;
+    setUploadedImage(null);
     setUserInput("");
-    addMessage({ message: input, type: "user" });
+    addMessage({ message: input, type: "user", images: currentImage ? [currentImage] : undefined });
 
     switch (flowStep) {
       case "asking_item": {
@@ -263,6 +283,7 @@ export default function BuyShitFast() {
     setSearchParams({ item: "", budget: "", specs: "" });
     setSearchResults([]);
     setUserInput("");
+    setUploadedImage(null);
     setConversation([INITIAL_MESSAGE]);
   };
 
@@ -399,8 +420,11 @@ export default function BuyShitFast() {
                   )}
                 </div>
               ) : (
-                <div className="max-w-[60%] flex flex-col text-white bg-[#2196f3] ml-auto items-start gap-2 rounded-[20px] p-4 text-left text-base font-medium transition-all whitespace-pre-wrap break-words">
-                  {msg.message}
+                <div className="max-w-[60%] flex flex-col text-white bg-[#2196f3] ml-auto items-start gap-2 rounded-[20px] p-4 text-left text-base font-medium transition-all">
+                  {msg.images?.map((src, ii) => (
+                    <img key={ii} src={src} alt="attached" className="w-full rounded-xl object-cover max-h-48" />
+                  ))}
+                  <span className="whitespace-pre-wrap break-words">{msg.message}</span>
                 </div>
               )}
             </div>
@@ -444,6 +468,33 @@ export default function BuyShitFast() {
               onChange={(e) => setUserInput(e.target.value)}
               disabled={flowStep === "searching"}
             />
+
+            {flowStep !== "searching" && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {uploadedImage && (
+                  <div className="relative">
+                    <img src={uploadedImage} alt="preview" className="h-10 w-10 rounded-lg object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setUploadedImage(null)}
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                      style={{ background: "#ef4444", lineHeight: 1 }}
+                      aria-label="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                <label
+                  className="flex items-center cursor-pointer transition-colors"
+                  style={{ color: uploadedImage ? "#4fc3f7" : "#6b7280" }}
+                  title={uploadedImage ? "Photo attached — click to change" : "Attach a photo"}
+                >
+                  <Paperclip className="h-5 w-5" />
+                  <input type="file" accept="image/png" className="hidden" onChange={handleImageUpload} />
+                </label>
+              </div>
+            )}
 
             <Button
               onClick={handleSendMessage}
