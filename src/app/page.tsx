@@ -307,6 +307,24 @@ export default function BuyShitFast() {
         const looksLikeBudget = /\d/.test(input) || /[€$£]/.test(input) ||
           /\b(any|whatever|flexible|open|no limit|no budget|doesn't matter|don't care|idc)\b/i.test(input);
 
+        const looksLikeNewItem = !!currentImage ||
+          /\b(actually|instead|changed my mind|want to buy|looking for|find me|i need|how about|what about|i want|search for|buy a|get a|find a|i changed|forget it|nevermind|never mind)\b/i.test(input);
+
+        if (!looksLikeBudget && looksLikeNewItem) {
+          // User wants to search for something else — restart the item flow
+          const newParams = { item: input, budget: "", specs: "" };
+          setSearchParams(newParams);
+          setFlowStep("asking_budget");
+          setConversation((old) => [...old, { message: "...", type: "bot", isThinking: true }]);
+          scrollToBottom();
+          const redirectMsgs = buildClaudeMessages(conversation, input, currentImage);
+          const budgetQuestion = await callChatAPI(redirectMsgs, newParams, [], "asking_budget");
+          setConversation((old) => [...old.slice(0, -1), { message: budgetQuestion, type: "bot" }]);
+          setInputHint(hintForStep["asking_budget"]);
+          scrollToBottom();
+          break;
+        }
+
         if (!looksLikeBudget) {
           const nudge = "I need a rough budget to find you the best deals! Even a range like €100–300 or just 'any' works fine.";
           setConversation((old) => [...old, { message: nudge, type: "bot" }]);
@@ -328,6 +346,23 @@ export default function BuyShitFast() {
       }
 
       case "asking_specs": {
+        const looksLikeNewItemInSpecs = !!currentImage ||
+          /\b(actually|instead|changed my mind|want to buy|looking for|find me|i need|how about|what about|i want|search for|buy a|get a|find a|i changed|forget it|nevermind|never mind)\b/i.test(input);
+
+        if (looksLikeNewItemInSpecs) {
+          const newParams = { item: input, budget: "", specs: "" };
+          setSearchParams(newParams);
+          setFlowStep("asking_budget");
+          setConversation((old) => [...old, { message: "...", type: "bot", isThinking: true }]);
+          scrollToBottom();
+          const redirectMsgs = buildClaudeMessages(conversation, input, currentImage);
+          const budgetQuestion = await callChatAPI(redirectMsgs, newParams, [], "asking_budget");
+          setConversation((old) => [...old.slice(0, -1), { message: budgetQuestion, type: "bot" }]);
+          setInputHint(hintForStep["asking_budget"]);
+          scrollToBottom();
+          break;
+        }
+
         const specs = input.toLowerCase() === "any" ? "" : input;
         const fullParams = { ...searchParams, specs };
         setSearchParams(fullParams);
