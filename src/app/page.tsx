@@ -90,30 +90,32 @@ function generateMockResults(item: string, budget: string): ResultCard[] {
   }));
 }
 
-function generateChatResponse(input: string, params: SearchParams, results: ResultCard[]): string {
-  const lower = input.toLowerCase();
+function buildClaudeMessages(
+  conversation: Message[],
+  newInput: string
+): { role: "user" | "assistant"; content: string }[] {
+  const history = conversation
+    .filter((m) => !m.isThinking && m.message.trim() && m.message !== "...")
+    .map((m) => ({ role: (m.type === "user" ? "user" : "assistant") as "user" | "assistant", content: m.message }));
 
-  if (lower.includes("cheaper") || lower.includes("lower") || lower.includes("less") || lower.includes("budget")) {
-    return `The third option at ${results[2]?.price || "a lower price"} is the most budget-friendly. Once live scraping is active, I can filter for even fresher listings under your budget in real time.`;
-  }
-  if (lower.includes("negotiat") || lower.includes("offer") || lower.includes("haggle") || lower.includes("counter")) {
-    const topPrice = parseInt(results[0]?.price?.replace(/[^0-9]/g, "") || "400");
-    return `For second-hand deals, open at around 85% of the asking price. On the top listing that's roughly €${Math.round(topPrice * 0.85)}. Mentioning "cash payment today" on Marktplaats works surprisingly well!`;
-  }
-  if (lower.includes("more") || lower.includes("other") || lower.includes("different") || lower.includes("else") || lower.includes("another")) {
-    return `Once web scraping is live I can also pull from Facebook Marketplace, Vinted, BackMarket, and Swappie simultaneously. Want me to try a slightly different search query in the meantime?`;
-  }
-  if (lower.includes("best") || lower.includes("recommend") || lower.includes("which") || lower.includes("top") || lower.includes("pick")) {
-    const top = results[0];
-    return `I'd go with the ${top?.title} — ${top?.valueScore}% deal score, ${top?.condition.toLowerCase()} condition, and the biggest savings vs retail. It's the strongest value across all three results.`;
-  }
-  if (lower.includes("condition") || lower.includes("quality") || lower.includes("damage") || lower.includes("scratch")) {
-    return `"Excellent" means no visible wear and all original accessories present. "Very Good" may have minor surface marks. Always ask the seller for extra photos and check if the battery health is included in the listing.`;
-  }
-  if (lower.includes("ship") || lower.includes("deliver") || lower.includes("pickup") || lower.includes("meet")) {
-    return `All three listings are within the Netherlands. Marktplaats listings usually offer both local pickup and PostNL shipping. For valuables I always recommend meeting in person or using Marktplaats Aanbetaling for buyer protection.`;
-  }
-  return `Good question! Once web scraping goes live I'll be able to pull real-time data to answer that accurately. For now, the value scores factor in current market prices, condition, and platform averages for your item.`;
+  const all = [...history, { role: "user" as const, content: newInput }];
+  const recent = all.slice(-12);
+  const firstUser = recent.findIndex((m) => m.role === "user");
+  return firstUser >= 0 ? recent.slice(firstUser) : [{ role: "user", content: newInput }];
+}
+
+async function callChatAPI(
+  messages: { role: "user" | "assistant"; content: string }[],
+  searchParams: SearchParams,
+  results: ResultCard[]
+): Promise<string> {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, searchParams, results }),
+  });
+  const data = await res.json();
+  return data.reply as string;
 }
 
 const INITIAL_MESSAGE: Message = {
@@ -186,13 +188,12 @@ export default function BuyShitFast() {
 
     await new Promise<void>((r) => setTimeout(r, 500));
 
-    const top = results[0];
+    const summaryMessages = buildClaudeMessages([], `I found ${results.length} deals for a ${params.item} within ${params.budget}. Give a short summary of the best pick and offer to help.`);
+    const summaryReply = await callChatAPI(summaryMessages, params, results);
+
     setConversation((old) => [
       ...old,
-      {
-        message: `Best value pick: ${top.title} at ${top.price} — ${top.valueScore}% deal score. Want to refine the search or need help negotiating a lower price?`,
-        type: "bot",
-      },
+      { message: summaryReply, type: "bot" },
     ]);
     scrollToBottom();
 
@@ -242,20 +243,15 @@ export default function BuyShitFast() {
       }
 
       case "chat": {
-        setTimeout(() => {
-          setConversation((old) => [...old, { message: "...", type: "bot", isThinking: true }]);
-          scrollToBottom();
-          setTimeout(() => {
-            setConversation((old) => [
-              ...old.slice(0, -1),
-              {
-                message: generateChatResponse(input, searchParams, searchResults),
-                type: "bot",
-              },
-            ]);
-            scrollToBottom();
-          }, 1400);
-        }, 300);
+        setConversation((old) => [...old, { message: "...", type: "bot", isThinking: true }]);
+        scrollToBottom();
+        const msgs = buildClaudeMessages(conversation, input);
+        const reply = await callChatAPI(msgs, searchParams, searchResults);
+        setConversation((old) => [
+          ...old.slice(0, -1),
+          { message: reply, type: "bot" },
+        ]);
+        scrollToBottom();
         break;
       }
     }
