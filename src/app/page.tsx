@@ -15,6 +15,8 @@ interface ResultCard {
   valueScore: number;
   savings: string;
   location: string;
+  link?: string;
+  image?: string;
 }
 
 interface Message {
@@ -158,10 +160,19 @@ export default function BuyShitFast() {
     ]);
     scrollToBottom();
 
+    // Kick off the real search immediately, in parallel with the animation
+    const searchPromise = fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    })
+      .then((r) => r.json())
+      .catch(() => ({ results: [] }));
+
     const steps: [number, string][] = [
       [1100, "Searching Marktplaats..."],
-      [1000, "Checking 2dehands.be..."],
-      [1200, "Analyzing value & prices..."],
+      [1000, "Checking prices & availability..."],
+      [1200, "Analyzing value & deals..."],
     ];
 
     for (const [ms, msg] of steps) {
@@ -172,9 +183,14 @@ export default function BuyShitFast() {
       ]);
     }
 
-    await new Promise<void>((r) => setTimeout(r, 1300));
+    // Await the search result (may already be resolved)
+    const searchData = await searchPromise;
+    const liveResults: ResultCard[] = searchData.results ?? [];
+    const results: ResultCard[] =
+      liveResults.length > 0 ? liveResults : generateMockResults(params.item, params.budget);
 
-    const results = generateMockResults(params.item, params.budget);
+    await new Promise<void>((r) => setTimeout(r, 500));
+
     setSearchResults(results);
 
     setConversation((old) => [
@@ -326,10 +342,17 @@ export default function BuyShitFast() {
                       {msg.results && msg.results.length > 0 && (
                         <div className="flex flex-col gap-3 mt-3 w-full">
                           {msg.results.map((r, ri) => (
-                            <div
+                            <a
                               key={ri}
-                              className="rounded-2xl p-3 relative"
-                              style={{ background: "#1a1a1c", border: "1px solid #3a3a3c" }}
+                              href={r.link ?? "#"}
+                              target={r.link ? "_blank" : undefined}
+                              rel="noopener noreferrer"
+                              className="block rounded-2xl p-3 relative no-underline transition-all hover:opacity-80"
+                              style={{
+                                background: "#1a1a1c",
+                                border: "1px solid #3a3a3c",
+                                cursor: r.link ? "pointer" : "default",
+                              }}
                             >
                               {ri === 0 && (
                                 <span
@@ -363,8 +386,15 @@ export default function BuyShitFast() {
                                   {r.valueScore}% deal
                                 </span>
                               </div>
-                              <div className="text-gray-500 text-xs mt-0.5">
-                                {r.platform} · 📍 {r.location}
+                              <div className="flex items-center justify-between mt-0.5">
+                                <span className="text-gray-500 text-xs">
+                                  {r.platform} · 📍 {r.location}
+                                </span>
+                                {r.link && (
+                                  <span className="text-[#2196f3] text-xs font-medium">
+                                    View listing ↗
+                                  </span>
+                                )}
                               </div>
                               <div className="flex justify-between items-end mt-2">
                                 <div className="flex items-baseline gap-2">
@@ -391,7 +421,7 @@ export default function BuyShitFast() {
                                   {r.condition}
                                 </span>
                               </div>
-                            </div>
+                            </a>
                           ))}
                         </div>
                       )}
