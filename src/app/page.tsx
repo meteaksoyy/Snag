@@ -168,6 +168,15 @@ export default function BuyShitFast() {
   const [searchResults, setSearchResults] = useState<ResultCard[]>([]);
   const [conversation, setConversation] = useState<Message[]>([INITIAL_MESSAGE]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [inputHint, setInputHint] = useState("What would you like to buy?");
+
+  const hintForStep: Record<FlowStep, string> = {
+    asking_item:   "What would you like to buy?",
+    asking_budget: "Your budget (e.g. €300)",
+    asking_specs:  "Requirements, or 'any' to skip",
+    searching:     "Searching for deals…",
+    chat:          "Ask Scout anything…",
+  };
 
   const scrollToBottom = () => {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -232,6 +241,7 @@ export default function BuyShitFast() {
       ...old,
       { message: summaryReply, type: "bot" },
     ]);
+    setInputHint(hintForStep["chat"]);
     scrollToBottom();
 
     setFlowStep("chat");
@@ -272,11 +282,22 @@ export default function BuyShitFast() {
         const budgetPromptMsgs = buildClaudeMessages(conversation, input, currentImage);
         const budgetQuestion = await callChatAPI(budgetPromptMsgs, newParams, [], "asking_budget");
         setConversation((old) => [...old.slice(0, -1), { message: budgetQuestion, type: "bot" }]);
+        setInputHint(hintForStep["asking_budget"]);
         scrollToBottom();
         break;
       }
 
       case "asking_budget": {
+        const looksLikeBudget = /\d/.test(input) || /[€$£]/.test(input) ||
+          /\b(any|whatever|flexible|open|no limit|no budget|doesn't matter|don't care|idc)\b/i.test(input);
+
+        if (!looksLikeBudget) {
+          const nudge = "I need a rough budget to find you the best deals! Even a range like €100–300 or just 'any' works fine.";
+          setConversation((old) => [...old, { message: nudge, type: "bot" }]);
+          scrollToBottom();
+          break;
+        }
+
         const newParams = { ...searchParams, budget: input };
         setSearchParams(newParams);
         setFlowStep("asking_specs");
@@ -285,6 +306,7 @@ export default function BuyShitFast() {
         const specsPromptMsgs = buildClaudeMessages(conversation, input, currentImage);
         const specsQuestion = await callChatAPI(specsPromptMsgs, newParams, [], "asking_specs");
         setConversation((old) => [...old.slice(0, -1), { message: specsQuestion, type: "bot" }]);
+        setInputHint(hintForStep["asking_specs"]);
         scrollToBottom();
         break;
       }
@@ -306,6 +328,7 @@ export default function BuyShitFast() {
           ...old.slice(0, -1),
           { message: reply, type: "bot" },
         ]);
+        setInputHint(hintForStep["chat"]);
         scrollToBottom();
         break;
       }
@@ -319,6 +342,7 @@ export default function BuyShitFast() {
     setUserInput("");
     setUploadedImage(null);
     setConversation([INITIAL_MESSAGE]);
+    setInputHint(hintForStep["asking_item"]);
   };
 
   const handleEnter = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -329,13 +353,8 @@ export default function BuyShitFast() {
   };
 
   const getPlaceholder = () => {
-    switch (flowStep) {
-      case "asking_item":   return "What would you like to buy?";
-      case "asking_budget": return "Enter your budget (e.g., €500)";
-      case "asking_specs":  return "Any requirements? (or type 'any' to skip)";
-      case "searching":     return "Searching for deals...";
-      case "chat":          return "Ask Scout anything...";
-    }
+    if (flowStep === "searching") return "Searching for deals...";
+    return inputHint;
   };
 
   return (
