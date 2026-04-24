@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { KeyboardEvent, useRef, useState } from "react";
 import { RefreshCw, Paperclip } from "lucide-react";
 import React from "react";
+import NegotiationCopilot from "@/components/NegotiationCopilot";
 
 interface ResultCard {
   title: string;
@@ -197,6 +198,7 @@ export default function BuyShitFast() {
   const [conversation, setConversation] = useState<Message[]>([INITIAL_MESSAGE]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [inputHint, setInputHint] = useState("What would you like to buy?");
+  const [negotiatingListing, setNegotiatingListing] = useState<ResultCard | null>(null);
 
   const hintForStep: Record<FlowStep, string> = {
     asking_item:   "What would you like to buy?",
@@ -491,12 +493,9 @@ export default function BuyShitFast() {
                       {msg.results && msg.results.length > 0 && (
                         <div className="flex flex-col gap-2.5 mt-3 w-full">
                           {msg.results.map((r, ri) => (
-                            <a
+                            <div
                               key={ri}
-                              href={r.link ?? "#"}
-                              target={r.link ? "_blank" : undefined}
-                              rel="noopener noreferrer"
-                              className="block p-3 relative no-underline transition-all hover:brightness-110"
+                              className="p-3 relative transition-all hover:brightness-110"
                               style={{
                                 background: "rgba(255,255,255,0.04)",
                                 backdropFilter: "blur(8px)",
@@ -504,7 +503,6 @@ export default function BuyShitFast() {
                                 border: "1px solid rgba(255,255,255,0.07)",
                                 borderLeft: ri === 0 ? "3px solid #4ade80" : "3px solid rgba(255,255,255,0.07)",
                                 borderRadius: "12px",
-                                cursor: r.link ? "pointer" : "default",
                               }}
                             >
                               <div className="flex gap-3 items-start">
@@ -529,7 +527,7 @@ export default function BuyShitFast() {
                                     <span className="text-[#2196f3] text-lg font-bold">{r.price}</span>
                                     <span className="text-green-400 text-xs">{r.savings}</span>
                                   </div>
-                                  <div className="flex items-center justify-between mt-1">
+                                  <div className="flex items-center justify-between mt-2">
                                     <span
                                       className="text-xs px-2 py-0.5 rounded-full"
                                       style={{
@@ -539,13 +537,33 @@ export default function BuyShitFast() {
                                     >
                                       {r.condition}
                                     </span>
-                                    {r.link && (
-                                      <span className="text-[#2196f3] text-xs font-medium">View ↗</span>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => setNegotiatingListing(r)}
+                                        className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-all hover:scale-105 active:scale-95"
+                                        style={{
+                                          background: "rgba(33,150,243,0.15)",
+                                          color: "#60a5fa",
+                                          border: "1px solid rgba(33,150,243,0.25)",
+                                        }}
+                                      >
+                                        Make Offer
+                                      </button>
+                                      {r.link && (
+                                        <a
+                                          href={r.link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-[#2196f3] text-xs font-medium no-underline hover:underline"
+                                        >
+                                          View ↗
+                                        </a>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </a>
+                            </div>
                           ))}
                         </div>
                       )}
@@ -575,6 +593,14 @@ export default function BuyShitFast() {
         </div>
         <div ref={messagesEndRef} className="mb-2" />
       </ScrollArea>
+
+      {/* Negotiation Copilot overlay */}
+      {negotiatingListing && (
+        <NegotiationCopilot
+          listing={negotiatingListing}
+          onClose={() => setNegotiatingListing(null)}
+        />
+      )}
 
       {/* Input bar */}
       <div className="w-full sm:max-w-3xl mx-auto">
