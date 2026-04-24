@@ -131,7 +131,7 @@ function buildClaudeMessages(
   newInput: string,
   imageBase64?: string | null
 ): ClaudeMessage[] {
-  const history: ClaudeMessage[] = conversation
+  const rawHistory: ClaudeMessage[] = conversation
     .filter((m) => !m.isThinking && m.message.trim() && m.message !== "...")
     .map((m) => {
       if (m.type === "user" && m.images && m.images.length > 0) {
@@ -145,6 +145,18 @@ function buildClaudeMessages(
       }
       return { role: (m.type === "user" ? "user" : "assistant") as "user" | "assistant", content: m.message };
     });
+
+  // Anthropic requires strict user/assistant alternation. Merge consecutive same-role
+  // messages so two bot messages in a row (e.g. results card + summary) don't cause a 400.
+  const history: ClaudeMessage[] = [];
+  for (const msg of rawHistory) {
+    const last = history[history.length - 1];
+    if (last && last.role === msg.role && typeof last.content === "string" && typeof msg.content === "string") {
+      last.content = last.content + "\n" + msg.content;
+    } else {
+      history.push({ ...msg });
+    }
+  }
 
   let newContent: string | ContentBlock[];
   if (imageBase64) {
@@ -168,13 +180,17 @@ async function callChatAPI(
   results: ResultCard[],
   flowStep?: string
 ): Promise<string> {
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, searchParams, results, flowStep }),
-  });
-  const data = await res.json();
-  return data.reply as string;
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, searchParams, results, flowStep }),
+    });
+    const data = await res.json();
+    return data.reply as string;
+  } catch {
+    return "Sorry, I couldn't connect right now. Please try again.";
+  }
 }
 
 const INITIAL_MESSAGE: Message = {
@@ -397,7 +413,7 @@ export default function BuyShitFast() {
 
       case "chat": {
         const newSearchIntent =
-          /\b(search(?:ing)? for|find (?:me |a |an |some )|look(?:ing)? for|show me (?:a |some |listings? for)|i want (?:to buy|to find|to search)|i(?:'m| am) looking for|can you (?:find|search|look for)|also (?:find|search|look for)|what about (?:buying |finding |searching for )?(?:a |an )?|how about (?:a |an )?)\b/i.test(input);
+          /\b(search(?:ing)? (?:for|again)|find (?:me |a |an |some )|look(?:ing)? for|show me (?:a |some |listings? for|more (?:listings?|deals?|results?|offers?))|i want (?:to buy|to find|to search)|i(?:'m| am) looking for|can you (?:find|search|look for)|also (?:find|search|look for)|what about (?:buying |finding |searching for )?(?:a |an )?|how about (?:a |an )?|refetch|(?:get|show|fetch|find) (?:me )?(?:more|new|different|other|fresh) (?:listings?|results?|offers?|deals?)|new search|start (?:a )?(?:new )?search|search for something|try (?:a )?different)\b/i.test(input);
 
         if (newSearchIntent) {
           setConversation((old) => [...old, { message: "...", type: "bot", isThinking: true }]);
