@@ -57,6 +57,15 @@ Click **Make Offer** on any result card to open the Negotiation Copilot:
   - **Haggler** — references market comparables and item condition to justify a lower price
 - One-click copy for each draft
 
+### bunq Payments
+Pay for listings directly from the app using the bunq banking API (sandbox):
+- Click **Login with bunq** in the bottom-left sidebar to authenticate
+- Your account balance is shown live in the sidebar and updates automatically after each payment
+- Every result card gains a **Pay** button — clicking it opens a pre-filled payment modal
+- The modal lets you edit the recipient email, amount, and description before confirming
+- All payments go through the real bunq sandbox API with RSA-signed requests; no real money is moved
+- Sessions are cached server-side in `bunq_context.json` so re-authentication is instant on repeat visits
+
 ### Dutch & English Negotiation Messages
 The Negotiation Copilot supports both languages:
 - Toggle between **NL** and **EN** with a single click
@@ -89,6 +98,7 @@ Theme preference persists across sessions via `localStorage`.
 | AI (chat) | Claude Haiku 4.5 |
 | AI (search, negotiate & URL analysis) | Claude Sonnet 4.6 |
 | Marketplace API | Marktplaats LRP API (live, no auth required) |
+| Payments | bunq sandbox API (RSA-2048 signed, session-cached) |
 | State / persistence | React hooks + localStorage (no database) |
 | Python prototype | Sentence Transformers, Pillow, NumPy |
 
@@ -110,6 +120,7 @@ Create `.env.local`:
 
 ```
 ANTHROPIC_API_KEY=your_key_here
+BUNQ_API_KEY=sandbox_your_key_here
 ```
 
 ```bash
@@ -117,6 +128,22 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### Fund the sandbox account
+
+After starting the app, add €500 of test money to your bunq sandbox account:
+
+```bash
+curl -X POST http://localhost:3000/api/bunq/fund
+```
+
+This requests funds from `sugardaddy@bunq.com` — bunq's official sandbox test account. You can run it multiple times or specify a custom amount (max €500 per call):
+
+```bash
+curl -X POST http://localhost:3000/api/bunq/fund \
+  -H "Content-Type: application/json" \
+  -d '{"amount": "250.00"}'
+```
 
 ### Python backend (optional prototype)
 
@@ -138,13 +165,24 @@ src/
     page.tsx              # Main UI — chat, sidebar, flow logic, result cards
     globals.css           # Theme definitions and CSS variables
     api/
-      chat/route.ts       # Claude Haiku conversation endpoint
-      search/route.ts     # Multi-stage ranking pipeline + Marktplaats integration
-      negotiate/route.ts     # Claude Sonnet negotiation message generator
-      analyze-url/route.ts  # Listing URL fetcher, parser, and AI price verdict
+      chat/route.ts           # Claude Haiku conversation endpoint
+      search/route.ts         # Multi-stage ranking pipeline + Marktplaats integration
+      negotiate/route.ts      # Claude Sonnet negotiation message generator
+      analyze-url/route.ts    # Listing URL fetcher, parser, and AI price verdict
+      bunq/
+        auth/route.ts         # 3-step bunq authentication (installation → device → session)
+        accounts/route.ts     # List monetary accounts with balance and IBAN
+        fund/route.ts         # Request test money from sugardaddy@bunq.com
+        pay/route.ts          # Send a payment from the primary account
+        transactions/route.ts # List recent payments
   components/
-    NegotiationCopilot.tsx  # Make Offer modal
-    ui/                     # Shared primitives (textarea, button, scroll area)
+    NegotiationCopilot.tsx    # Make Offer modal
+    BunqPayModal.tsx          # bunq payment modal (pre-filled from result card)
+    ui/                       # Shared primitives (textarea, button, scroll area)
+  lib/
+    bunq/
+      client.ts               # bunq API client — RSA signing, auth flow, context caching
+    utils.ts
 backend/
   agent.py                # Python prototype (parse → source → rank → output)
   requirements.txt
