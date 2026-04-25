@@ -313,30 +313,32 @@ export default function BuyShitFast() {
   const [inputHint, setInputHint] = useState("What would you like to buy?");
   const [negotiatingListing, setNegotiatingListing] = useState<ResultCard | null>(null);
 
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "dark";
-    return (localStorage.getItem("scout_theme") as Theme) || "dark";
-  });
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem("scout_theme", theme);
+    const saved = localStorage.getItem("scout_theme") as Theme | null;
+    if (saved) setTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("scout_theme", theme);
   }, [theme]);
 
-  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
-    if (typeof window === "undefined") return "default";
-    return crypto.randomUUID();
-  });
+  const [currentSessionId, setCurrentSessionId] = useState<string>("default");
 
   const currentSessionIdRef = useRef(currentSessionId);
 
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    if (typeof window === "undefined") return [];
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+
+  useEffect(() => {
+    setCurrentSessionId(crypto.randomUUID());
     try {
-      return JSON.parse(localStorage.getItem("scout_sessions") || "[]");
+      const saved = JSON.parse(localStorage.getItem("scout_sessions") || "[]");
+      setSessions(saved);
     } catch {
-      return [];
+      // ignore malformed data
     }
-  });
+  }, []);
 
   const hintForStep: Record<FlowStep, string> = {
     asking_item:   "What would you like to buy?",
