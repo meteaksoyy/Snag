@@ -3,8 +3,8 @@
 import { AutosizeTextarea } from "@/components/ui/autosize-textarea";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { KeyboardEvent, useRef, useState } from "react";
-import { RefreshCw, Paperclip } from "lucide-react";
+import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { RefreshCw, Paperclip, Plus, MessageSquare, X } from "lucide-react";
 import React from "react";
 import NegotiationCopilot from "@/components/NegotiationCopilot";
 
@@ -34,6 +34,38 @@ interface SearchParams {
   item: string;
   budget: string;
   specs: string;
+}
+
+interface ChatSession {
+  id: string;
+  title: string;
+  conversation: Message[];
+  flowStep: FlowStep;
+  searchParams: SearchParams;
+  searchResults: ResultCard[];
+  updatedAt: number;
+}
+
+function groupSessionsByDate(sessions: ChatSession[]) {
+  const today = new Date().setHours(0, 0, 0, 0);
+  const yesterday = today - 86400000;
+  const week = today - 7 * 86400000;
+
+  const groups: { label: string; sessions: ChatSession[] }[] = [
+    { label: "Today", sessions: [] },
+    { label: "Yesterday", sessions: [] },
+    { label: "Previous 7 days", sessions: [] },
+    { label: "Older", sessions: [] },
+  ];
+
+  for (const s of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    if (s.updatedAt >= today) groups[0].sessions.push(s);
+    else if (s.updatedAt >= yesterday) groups[1].sessions.push(s);
+    else if (s.updatedAt >= week) groups[2].sessions.push(s);
+    else groups[3].sessions.push(s);
+  }
+
+  return groups.filter((g) => g.sessions.length > 0);
 }
 
 // Score arc ring displayed next to each result card
@@ -216,6 +248,20 @@ export default function BuyShitFast() {
   const [inputHint, setInputHint] = useState("What would you like to buy?");
   const [negotiatingListing, setNegotiatingListing] = useState<ResultCard | null>(null);
 
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") return "default";
+    return crypto.randomUUID();
+  });
+
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(localStorage.getItem("scout_sessions") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
   const hintForStep: Record<FlowStep, string> = {
     asking_item:   "What would you like to buy?",
     asking_budget: "Your budget (e.g. €300)",
@@ -223,6 +269,43 @@ export default function BuyShitFast() {
     searching:     "Searching for deals…",
     chat:          "Ask Scout anything…",
   };
+
+  // Persist sessions to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("scout_sessions", JSON.stringify(sessions));
+    }
+  }, [sessions]);
+
+  // Auto-save current session whenever conversation changes
+  useEffect(() => {
+    const userMsgs = conversation.filter(
+      (m) => m.type === "user" && !m.isThinking && m.message.trim()
+    );
+    if (userMsgs.length === 0) return;
+
+    const title = userMsgs[0].message.slice(0, 50) || "Chat";
+    const conversationToSave = conversation.filter((m) => !m.isThinking);
+
+    setSessions((prev) => {
+      const idx = prev.findIndex((s) => s.id === currentSessionId);
+      const session: ChatSession = {
+        id: currentSessionId,
+        title,
+        conversation: conversationToSave,
+        flowStep,
+        searchParams,
+        searchResults,
+        updatedAt: Date.now(),
+      };
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = session;
+        return next;
+      }
+      return [session, ...prev];
+    });
+  }, [conversation, flowStep, searchParams, searchResults, currentSessionId]);
 
   const scrollToBottom = () => {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -237,6 +320,47 @@ export default function BuyShitFast() {
       const top = scrollRef.current?.getBoundingClientRect()?.top || 0;
       const height = scrollRef.current?.clientHeight || 0;
       if (height - (end - top) >= -200) scrollToBottom();
+    }
+  };
+
+  const handleReset = () => {
+    setFlowStep("asking_item");
+    setSearchParams({ item: "", budget: "", specs: "" });
+    setSearchResults([]);
+    setUserInput("");
+    setUploadedImage(null);
+    setConversation([INITIAL_MESSAGE]);
+    setInputHint(hintForStep["asking_item"]);
+  };
+
+  const handleNewChat = () => {
+    setCurrentSessionId(crypto.randomUUID());
+    setFlowStep("asking_item");
+    setSearchParams({ item: "", budget: "", specs: "" });
+    setSearchResults([]);
+    setUserInput("");
+    setUploadedImage(null);
+    setConversation([INITIAL_MESSAGE]);
+    setInputHint(hintForStep["asking_item"]);
+  };
+
+  const handleLoadSession = (session: ChatSession) => {
+    setCurrentSessionId(session.id);
+    setConversation(session.conversation);
+    setFlowStep(session.flowStep);
+    setSearchParams(session.searchParams);
+    setSearchResults(session.searchResults);
+    setUserInput("");
+    setUploadedImage(null);
+    setInputHint(hintForStep[session.flowStep]);
+    scrollToBottom();
+  };
+
+  const handleDeleteSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (id === currentSessionId) {
+      handleNewChat();
     }
   };
 
@@ -447,16 +571,6 @@ export default function BuyShitFast() {
     }
   };
 
-  const handleReset = () => {
-    setFlowStep("asking_item");
-    setSearchParams({ item: "", budget: "", specs: "" });
-    setSearchResults([]);
-    setUserInput("");
-    setUploadedImage(null);
-    setConversation([INITIAL_MESSAGE]);
-    setInputHint(hintForStep["asking_item"]);
-  };
-
   const handleEnter = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -469,261 +583,325 @@ export default function BuyShitFast() {
     return inputHint;
   };
 
+  const sessionGroups = groupSessionsByDate(sessions);
+
   return (
     <main
-      className="h-screen flex flex-col"
+      className="h-screen flex flex-row overflow-hidden"
       style={{
         background: "radial-gradient(ellipse at 20% 0%, rgba(79,70,229,0.28) 0%, transparent 52%), radial-gradient(ellipse at 80% 100%, rgba(16,185,129,0.12) 0%, transparent 50%), #0c0c10",
       }}
     >
-      {/* Slim header bar */}
+      {/* ── Sidebar ── */}
       <div
-        className="w-full flex items-center justify-between px-6 py-3 flex-shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        className="w-64 flex-shrink-0 flex flex-col h-full"
+        style={{
+          background: "rgba(9,9,13,0.97)",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
+        }}
       >
-        <div className="flex items-center gap-3">
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{
               background: "rgba(33,150,243,0.12)",
               border: "1px solid rgba(33,150,243,0.3)",
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="#2196f3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2196f3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
               <circle cx="11" cy="11" r="7" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-white font-bold text-lg leading-none">Scout</span>
-            <span className="text-gray-500 text-xs">deal hunter</span>
-          </div>
+          <span className="text-white font-bold text-base">Scout</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-gray-500 text-xs">online</span>
+
+        {/* New Chat button */}
+        <div className="px-3 pb-3">
+          <button
+            onClick={handleNewChat}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-white transition-all hover:bg-white/[0.06] active:bg-white/10"
+            style={{ border: "1px solid rgba(255,255,255,0.10)" }}
+          >
+            <Plus className="h-4 w-4 text-gray-400" />
+            New chat
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-3 mb-2" style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+
+        {/* Session list */}
+        <div className="flex-1 overflow-y-auto px-2 pb-4" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
+          {sessionGroups.length === 0 ? (
+            <p className="text-xs text-gray-600 px-3 py-2">No previous chats</p>
+          ) : (
+            sessionGroups.map((group) => (
+              <div key={group.label} className="mb-4">
+                <p className="text-[10px] text-gray-600 px-3 py-1 font-semibold uppercase tracking-widest">
+                  {group.label}
+                </p>
+                {group.sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    onClick={() => handleLoadSession(session)}
+                    className={`cursor-pointer w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all group relative mb-0.5 ${
+                      session.id === currentSessionId
+                        ? "bg-white/[0.07] text-white"
+                        : "text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
+                    }`}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 opacity-50" />
+                    <span className="flex-1 truncate pr-5 text-[13px]">{session.title}</span>
+                    <button
+                      onClick={(e) => handleDeleteSession(session.id, e)}
+                      className="absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-400 p-0.5 rounded"
+                      aria-label="Delete chat"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      <ScrollArea ref={scrollRef} className="flex-1 overflow-x-hidden">
-        <div className="flex flex-col gap-2 p-4 max-w-3xl mx-auto">
-          {conversation.map((msg, i) => (
-            <div key={i} className="flex gap-2 first:mt-2 msg-slide-in">
-              {msg.type === "bot" ? (
-                <div
-                  className="w-full overflow-hidden p-4 text-white relative font-medium max-w-[75%] mr-auto"
-                  style={{
-                    borderRadius: "14px",
-                    background: "rgba(22,22,30,0.75)",
-                    backdropFilter: "blur(20px)",
-                    WebkitBackdropFilter: "blur(20px)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    boxShadow: "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)",
-                  }}
-                >
-                  {msg.isThinking ? (
-                    <span className="inline-block animate-pulse text-2xl tracking-widest">···</span>
-                  ) : (
-                    <>
-                      <span className="whitespace-pre-wrap break-words">{msg.message}</span>
-                      {msg.results && msg.results.length > 0 && (
-                        <div className="flex flex-col gap-2.5 mt-3 w-full">
-                          {msg.results.map((r, ri) => (
-                            <div
-                              key={ri}
-                              className="p-3 relative transition-all hover:brightness-110"
-                              style={{
-                                background: "rgba(255,255,255,0.04)",
-                                backdropFilter: "blur(8px)",
-                                WebkitBackdropFilter: "blur(8px)",
-                                border: "1px solid rgba(255,255,255,0.07)",
-                                borderLeft: ri === 0 ? "3px solid #4ade80" : "3px solid rgba(255,255,255,0.07)",
-                                borderRadius: "12px",
-                              }}
-                            >
-                              <div className="flex gap-3 items-start">
-                                {r.image && (
-                                  <img
-                                    src={r.image}
-                                    alt={r.title}
-                                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
-                                  />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <span className="text-white font-semibold text-sm leading-snug flex-1">
-                                      {r.title}
+      {/* ── Chat area ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Slim header */}
+        <div
+          className="w-full flex items-center justify-end px-6 py-3 flex-shrink-0"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-gray-500 text-xs">online</span>
+          </div>
+        </div>
+
+        <ScrollArea ref={scrollRef} className="flex-1 overflow-x-hidden">
+          <div className="flex flex-col gap-2 p-4 max-w-3xl mx-auto">
+            {conversation.map((msg, i) => (
+              <div key={i} className="flex gap-2 first:mt-2 msg-slide-in">
+                {msg.type === "bot" ? (
+                  <div
+                    className="w-full overflow-hidden p-4 text-white relative font-medium max-w-[75%] mr-auto"
+                    style={{
+                      borderRadius: "14px",
+                      background: "rgba(22,22,30,0.75)",
+                      backdropFilter: "blur(20px)",
+                      WebkitBackdropFilter: "blur(20px)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    {msg.isThinking ? (
+                      <span className="inline-block animate-pulse text-2xl tracking-widest">···</span>
+                    ) : (
+                      <>
+                        <span className="whitespace-pre-wrap break-words">{msg.message}</span>
+                        {msg.results && msg.results.length > 0 && (
+                          <div className="flex flex-col gap-2.5 mt-3 w-full">
+                            {msg.results.map((r, ri) => (
+                              <div
+                                key={ri}
+                                className="p-3 relative transition-all hover:brightness-110"
+                                style={{
+                                  background: "rgba(255,255,255,0.04)",
+                                  backdropFilter: "blur(8px)",
+                                  WebkitBackdropFilter: "blur(8px)",
+                                  border: "1px solid rgba(255,255,255,0.07)",
+                                  borderLeft: ri === 0 ? "3px solid #4ade80" : "3px solid rgba(255,255,255,0.07)",
+                                  borderRadius: "12px",
+                                }}
+                              >
+                                <div className="flex gap-3 items-start">
+                                  {r.image && (
+                                    <img
+                                      src={r.image}
+                                      alt={r.title}
+                                      className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className="text-white font-semibold text-sm leading-snug flex-1">
+                                        {r.title}
+                                      </span>
+                                      <ScoreRing score={r.valueScore} />
+                                    </div>
+                                    <span className="text-gray-500 text-xs">
+                                      {r.platform} · 📍 {r.location}
                                     </span>
-                                    <ScoreRing score={r.valueScore} />
-                                  </div>
-                                  <span className="text-gray-500 text-xs">
-                                    {r.platform} · 📍 {r.location}
-                                  </span>
-                                  <div className="flex items-baseline gap-2 mt-1.5">
-                                    <span className="text-[#2196f3] text-lg font-bold">{r.price}</span>
-                                    <span className="text-green-400 text-xs">{r.savings}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between mt-2">
-                                    <span
-                                      className="text-xs px-2 py-0.5 rounded-full"
-                                      style={{
-                                        background: conditionColor[r.condition].bg,
-                                        color: conditionColor[r.condition].text,
-                                      }}
-                                    >
-                                      {r.condition}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={() => setNegotiatingListing(r)}
-                                        className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-all hover:scale-105 active:scale-95"
+                                    <div className="flex items-baseline gap-2 mt-1.5">
+                                      <span className="text-[#2196f3] text-lg font-bold">{r.price}</span>
+                                      <span className="text-green-400 text-xs">{r.savings}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-2">
+                                      <span
+                                        className="text-xs px-2 py-0.5 rounded-full"
                                         style={{
-                                          background: "rgba(33,150,243,0.15)",
-                                          color: "#60a5fa",
-                                          border: "1px solid rgba(33,150,243,0.25)",
+                                          background: conditionColor[r.condition].bg,
+                                          color: conditionColor[r.condition].text,
                                         }}
                                       >
-                                        Make Offer
-                                      </button>
-                                      {r.link && (
-                                        <a
-                                          href={r.link}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-[#2196f3] text-xs font-medium no-underline hover:underline"
+                                        {r.condition}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => setNegotiatingListing(r)}
+                                          className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-all hover:scale-105 active:scale-95"
+                                          style={{
+                                            background: "rgba(33,150,243,0.15)",
+                                            color: "#60a5fa",
+                                            border: "1px solid rgba(33,150,243,0.25)",
+                                          }}
                                         >
-                                          View ↗
-                                        </a>
-                                      )}
+                                          Make Offer
+                                        </button>
+                                        {r.link && (
+                                          <a
+                                            href={r.link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[#2196f3] text-xs font-medium no-underline hover:underline"
+                                          >
+                                            View ↗
+                                          </a>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div
-                  className="max-w-[60%] flex flex-col text-white ml-auto items-start gap-2 p-4 text-left text-base font-medium"
-                  style={{
-                    borderRadius: "14px",
-                    background: "rgba(33,150,243,0.88)",
-                    backdropFilter: "blur(8px)",
-                    WebkitBackdropFilter: "blur(8px)",
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    boxShadow: "0 4px 20px rgba(33,150,243,0.22)",
-                  }}
-                >
-                  {msg.images?.map((src, ii) => (
-                    <img key={ii} src={src} alt="attached" className="w-full rounded-xl object-cover max-h-48" />
-                  ))}
-                  <span className="whitespace-pre-wrap break-words">{msg.message}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div ref={messagesEndRef} className="mb-2" />
-      </ScrollArea>
-
-      {/* Negotiation Copilot overlay */}
-      {negotiatingListing && (
-        <NegotiationCopilot
-          listing={negotiatingListing}
-          onClose={() => setNegotiatingListing(null)}
-        />
-      )}
-
-      {/* Input bar */}
-      <div className="w-full sm:max-w-3xl mx-auto">
-        <div className="p-6">
-          <div
-            className="input-container flex flex-row items-center gap-4 px-4 py-3"
-            style={{
-              border: "1px solid rgba(255,255,255,0.09)",
-              borderRadius: "16px",
-              background: "rgba(22,22,30,0.8)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={handleReset}
-              className="flex items-center justify-center h-10 w-10 rounded-full focus:outline-none transition-all hover:opacity-70 hover:scale-110 active:scale-95"
-              style={{ color: "#2196f3" }}
-              tabIndex={0}
-              aria-label="Start new search"
-              title="Start new search"
-            >
-              <RefreshCw className="h-5 w-5" />
-            </button>
-
-            <AutosizeTextarea
-              className="flex-1 outline-none border-0 bg-transparent text-white placeholder-gray-500 text-xl px-0"
-              placeholder={getPlaceholder()}
-              minHeight={25}
-              maxHeight={55}
-              rows={1}
-              onKeyDown={handleEnter}
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              disabled={flowStep === "searching"}
-            />
-
-            {flowStep !== "searching" && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {uploadedImage && (
-                  <div className="relative">
-                    <img src={uploadedImage} alt="preview" className="h-10 w-10 rounded-lg object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setUploadedImage(null)}
-                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                      style={{ background: "#ef4444", lineHeight: 1 }}
-                      aria-label="Remove image"
-                    >
-                      ×
-                    </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className="max-w-[60%] flex flex-col text-white ml-auto items-start gap-2 p-4 text-left text-base font-medium"
+                    style={{
+                      borderRadius: "14px",
+                      background: "rgba(33,150,243,0.88)",
+                      backdropFilter: "blur(8px)",
+                      WebkitBackdropFilter: "blur(8px)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      boxShadow: "0 4px 20px rgba(33,150,243,0.22)",
+                    }}
+                  >
+                    {msg.images?.map((src, ii) => (
+                      <img key={ii} src={src} alt="attached" className="w-full rounded-xl object-cover max-h-48" />
+                    ))}
+                    <span className="whitespace-pre-wrap break-words">{msg.message}</span>
                   </div>
                 )}
-                <label
-                  className="flex items-center cursor-pointer transition-all hover:scale-110"
-                  style={{ color: uploadedImage ? "#4fc3f7" : "#6b7280" }}
-                  title={uploadedImage ? "Photo attached — click to change" : "Attach a photo"}
-                >
-                  <Paperclip className="h-5 w-5" />
-                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                </label>
               </div>
-            )}
+            ))}
+          </div>
+          <div ref={messagesEndRef} className="mb-2" />
+        </ScrollArea>
 
-            <Button
-              onClick={handleSendMessage}
-              disabled={flowStep === "searching" || !userInput.trim()}
-              className="h-10 w-10 p-0 bg-[#2196f3] hover:bg-blue-500 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:shadow-[0_0_16px_rgba(33,150,243,0.5)]"
-              style={{ minWidth: 40, minHeight: 40 }}
-              aria-label="Send message"
+        {/* Negotiation Copilot overlay */}
+        {negotiatingListing && (
+          <NegotiationCopilot
+            listing={negotiatingListing}
+            onClose={() => setNegotiatingListing(null)}
+          />
+        )}
+
+        {/* Input bar */}
+        <div className="w-full max-w-3xl mx-auto">
+          <div className="p-6">
+            <div
+              className="input-container flex flex-row items-center gap-4 px-4 py-3"
+              style={{
+                border: "1px solid rgba(255,255,255,0.09)",
+                borderRadius: "16px",
+                background: "rgba(22,22,30,0.8)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+              }}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5 text-white"
+              <button
+                type="button"
+                onClick={handleReset}
+                className="flex items-center justify-center h-10 w-10 rounded-full focus:outline-none transition-all hover:opacity-70 hover:scale-110 active:scale-95"
+                style={{ color: "#2196f3" }}
+                tabIndex={0}
+                aria-label="Start new search"
+                title="Start new search"
               >
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </Button>
+                <RefreshCw className="h-5 w-5" />
+              </button>
+
+              <AutosizeTextarea
+                className="flex-1 outline-none border-0 bg-transparent text-white placeholder-gray-500 text-xl px-0"
+                placeholder={getPlaceholder()}
+                minHeight={25}
+                maxHeight={55}
+                rows={1}
+                onKeyDown={handleEnter}
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                disabled={flowStep === "searching"}
+              />
+
+              {flowStep !== "searching" && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {uploadedImage && (
+                    <div className="relative">
+                      <img src={uploadedImage} alt="preview" className="h-10 w-10 rounded-lg object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setUploadedImage(null)}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                        style={{ background: "#ef4444", lineHeight: 1 }}
+                        aria-label="Remove image"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                  <label
+                    className="flex items-center cursor-pointer transition-all hover:scale-110"
+                    style={{ color: uploadedImage ? "#4fc3f7" : "#6b7280" }}
+                    title={uploadedImage ? "Photo attached — click to change" : "Attach a photo"}
+                  >
+                    <Paperclip className="h-5 w-5" />
+                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                  </label>
+                </div>
+              )}
+
+              <Button
+                onClick={handleSendMessage}
+                disabled={flowStep === "searching" || !userInput.trim()}
+                className="h-10 w-10 p-0 bg-[#2196f3] hover:bg-blue-500 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:shadow-[0_0_16px_rgba(33,150,243,0.5)]"
+                style={{ minWidth: 40, minHeight: 40 }}
+                aria-label="Send message"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5 text-white"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
