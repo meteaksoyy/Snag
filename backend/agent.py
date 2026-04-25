@@ -22,7 +22,8 @@ from io import BytesIO
 
 import numpy as np
 from PIL import Image
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # ── Shared data classes ───────────────────────────────────────────────────────
@@ -89,9 +90,8 @@ CONDITION_MAP = {
 
 
 class UserRequestParser:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        print(f"Loading sentence-transformers model '{model_name}'...")
-        self._model = SentenceTransformer(model_name)
+    def __init__(self):
+        self._vectorizer = TfidfVectorizer()
 
     def parse(self, text: str, image_path: str | None = None) -> WishlistAttributes:
         lower = text.lower()
@@ -164,7 +164,7 @@ class UserRequestParser:
         )
 
     def embed_text(self, text: str) -> np.ndarray:
-        return self._model.encode(text, convert_to_numpy=True)
+        return self._vectorizer.fit_transform([text]).toarray()[0]
 
 
 # ── Class 2: SourcingPipeline ─────────────────────────────────────────────────
@@ -234,10 +234,10 @@ class MultimodalEliminationFilter:
             survivors.append(l)
         return survivors
 
-    def _tier2_score(self, listing: Listing, wishlist_embedding: np.ndarray) -> float:
-        text = f"{listing.title} {listing.description} {' '.join(listing.tags)}"
-        listing_emb = self._parser.embed_text(text)
-        return max(0.0, _cosine(wishlist_embedding, listing_emb))
+    def _tier2_score(self, listing: Listing, wishlist_text: str) -> float:
+        listing_text = f"{listing.title} {listing.description} {' '.join(listing.tags)}"
+        matrix = self._parser._vectorizer.fit_transform([wishlist_text, listing_text]).toarray()
+        return max(0.0, _cosine(matrix[0], matrix[1]))
 
     def _tier3_score(
         self,
@@ -261,11 +261,10 @@ class MultimodalEliminationFilter:
         print(f"Tier 1: {len(listings)} → {len(survivors)} listings after metadata filter")
 
         wishlist_text = f"{attrs.query} {' '.join(attrs.tags)}"
-        wishlist_emb = self._parser.embed_text(wishlist_text)
 
         ranked = []
         for l in survivors:
-            t2 = self._tier2_score(l, wishlist_emb)
+            t2 = self._tier2_score(l, wishlist_text)
             t3 = self._tier3_score(l.image_url, reference_image_array)
             combined = (t2 * 0.6 + t3 * 0.4) if reference_image_array is not None else t2
             price_savings_pct = max(0.0, 1.0 - l.price / attrs.budget_max) if attrs.budget_max > 0 else 0.0
