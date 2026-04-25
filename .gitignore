@@ -1,4 +1,6 @@
 .claude/
+sandboxuser.txt
+bunq_context.json
 
 # dependencies
 node_modules/

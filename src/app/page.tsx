@@ -7,6 +7,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { RefreshCw, Paperclip, Plus, MessageSquare, X, Sun, Moon, ChevronDown } from "lucide-react";
 import React from "react";
 import NegotiationCopilot from "@/components/NegotiationCopilot";
+import BunqPayModal from "@/components/BunqPayModal";
 
 interface ResultCard {
   title: string;
@@ -443,6 +444,10 @@ export default function BuyShitFast() {
   const [negotiatingListing, setNegotiatingListing] = useState<NegotiationTarget | null>(null);
   const [negotiatingInitialPrice, setNegotiatingInitialPrice] = useState<string | undefined>(undefined);
 
+  const [bunqUser, setBunqUser] = useState<{ userId: number; balance: string } | null>(null);
+  const [bunqAuthLoading, setBunqAuthLoading] = useState(false);
+  const [bunqPayTarget, setBunqPayTarget] = useState<ResultCard | null>(null);
+
   const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
@@ -558,6 +563,28 @@ export default function BuyShitFast() {
     setUploadedImage(null);
     setConversation([INITIAL_MESSAGE]);
     setInputHint(hintForStep["asking_item"]);
+  };
+
+  const handleBunqLogin = async () => {
+    setBunqAuthLoading(true);
+    try {
+      const authRes = await fetch("/api/bunq/auth", { method: "POST" });
+      const authData = await authRes.json();
+      if (!authData.success) throw new Error(authData.error || "Auth failed");
+
+      const accRes = await fetch("/api/bunq/accounts");
+      const accData = await accRes.json();
+      const primary = accData.accounts?.[0];
+      const balance = primary?.balance?.value
+        ? `€${parseFloat(primary.balance.value).toFixed(2)}`
+        : "€0.00";
+
+      setBunqUser({ userId: authData.userId, balance });
+    } catch (err) {
+      console.error("bunq auth failed:", err);
+    } finally {
+      setBunqAuthLoading(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -1000,6 +1027,46 @@ export default function BuyShitFast() {
             ))
           )}
         </div>
+
+        {/* bunq wallet */}
+        <div className="flex-shrink-0 px-3 pb-4 pt-2" style={{ borderTop: "1px solid var(--color-divider)" }}>
+          {bunqUser ? (
+            <div
+              className="p-3 rounded-xl flex flex-col gap-1.5"
+              style={{ background: "rgba(74,222,128,0.07)", border: "1px solid rgba(74,222,128,0.18)" }}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]"
+                  style={{ background: "rgba(74,222,128,0.18)", border: "1px solid rgba(74,222,128,0.3)" }}
+                >
+                  🏦
+                </div>
+                <span className="text-[11px] font-semibold" style={{ color: "#4ade80" }}>bunq Connected</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse ml-auto" />
+              </div>
+              <span className="text-base font-bold" style={{ color: "var(--color-text-primary)", paddingLeft: "1.75rem" }}>
+                {bunqUser.balance}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={handleBunqLogin}
+              disabled={bunqAuthLoading}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "rgba(33,150,243,0.10)", border: "1px solid rgba(33,150,243,0.26)", color: "#60a5fa" }}
+            >
+              {bunqAuthLoading ? (
+                <span className="animate-pulse text-xs">Connecting…</span>
+              ) : (
+                <>
+                  <span className="text-base leading-none">🏦</span>
+                  Login with bunq
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Chat area ── */}
@@ -1112,6 +1179,32 @@ export default function BuyShitFast() {
                                         >
                                           Make Offer
                                         </button>
+                                        {bunqUser ? (
+                                          <button
+                                            onClick={() => setBunqPayTarget(r)}
+                                            className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-all hover:scale-105 active:scale-95"
+                                            style={{
+                                              background: "rgba(74,222,128,0.12)",
+                                              color: "#4ade80",
+                                              border: "1px solid rgba(74,222,128,0.25)",
+                                            }}
+                                          >
+                                            Pay
+                                          </button>
+                                        ) : (
+                                          <button
+                                            onClick={handleBunqLogin}
+                                            disabled={bunqAuthLoading}
+                                            className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-all hover:scale-105 active:scale-95 disabled:opacity-40"
+                                            style={{
+                                              background: "rgba(74,222,128,0.07)",
+                                              color: "#4ade80",
+                                              border: "1px solid rgba(74,222,128,0.18)",
+                                            }}
+                                          >
+                                            {bunqAuthLoading ? "…" : "Pay"}
+                                          </button>
+                                        )}
                                         {r.link && (
                                           <a
                                             href={r.link}
@@ -1164,6 +1257,22 @@ export default function BuyShitFast() {
             listing={negotiatingListing}
             onClose={() => { setNegotiatingListing(null); setNegotiatingInitialPrice(undefined); }}
             initialTargetPrice={negotiatingInitialPrice}
+          />
+        )}
+
+        {/* bunq Pay modal */}
+        {bunqPayTarget && (
+          <BunqPayModal
+            listing={bunqPayTarget}
+            onClose={() => setBunqPayTarget(null)}
+            onSuccess={(paymentId) => {
+              const paid = bunqPayTarget;
+              setBunqPayTarget(null);
+              addMessage({
+                message: `Payment sent! €${paid.price.replace(/[^0-9.,]/g, "")} paid via bunq (payment ID: ${paymentId}).`,
+                type: "bot",
+              });
+            }}
           />
         )}
 
