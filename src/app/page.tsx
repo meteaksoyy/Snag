@@ -942,10 +942,7 @@ export default function BuyShitFast() {
               border: "1px solid var(--border-logo-icon)",
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-              <circle cx="11" cy="11" r="7" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+            <img src="/world-dollar.svg" alt="Snag logo" className="w-3.5 h-3.5" style={{ filter: "invert(45%) sepia(90%) saturate(500%) hue-rotate(190deg)" }} />
           </div>
           <span className="font-bold text-base" style={{ color: "var(--color-text-primary)" }}>Snag</span>
         </div>

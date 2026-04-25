@@ -3,8 +3,11 @@ import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Buy Shit Fast",
+  title: "Snag - Great Success",
   description: "Your personal deal hunter for second-hand buys",
+  icons: {
+    icon: "/world-dollar.svg",
+  },
 };
 
 export const viewport: Viewport = {
